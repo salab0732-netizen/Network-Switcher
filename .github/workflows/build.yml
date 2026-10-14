@@ -1,0 +1,54 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Syntax check
+        run: python -m py_compile netswitch.py
+
+      - name: Build NetworkSwitcher.exe
+        run: >
+          pyinstaller --noconfirm --clean --onefile --windowed --uac-admin
+          --name NetworkSwitcher --icon app.ico --add-data "app.ico;."
+          --collect-data customtkinter netswitch.py
+
+      - name: Read version
+        id: ver
+        shell: bash
+        run: echo "v=$(grep -oP '^VERSION = "\K[^"]+' netswitch.py)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NetworkSwitcher-v${{ steps.ver.outputs.v }}
+          path: dist/NetworkSwitcher.exe
+
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v${{ steps.ver.outputs.v }}"
+          gh release view "$TAG" >/dev/null 2>&1 || \
+            gh release create "$TAG" --title "Network Switcher $TAG" \
+              --notes "Windows build. Download NetworkSwitcher.exe and run it (asks for admin rights)."
+          gh release upload "$TAG" dist/NetworkSwitcher.exe --clobber
